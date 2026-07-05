@@ -1,0 +1,27 @@
+{
+    "guild_id": null,
+    "logs_channel_id": null,
+    "welcome_channel_id": null,
+    "goodbye_channel_id": null,
+    "moderation": {
+        "mute_duration_minutes": 60
+    },
+    "automod": {
+        "anti_spam": true,
+        "spam_threshold": 5,
+        "spam_interval_seconds": 5,
+        "anti_links": true,
+        "anti_insults": true,
+        "insult_words": [
+            "connard", "salope", "fdp", "enculé", "pute", "merde", "nique", "batard"
+        ],
+        "bypass_role_ids": []
+    },
+    "welcome": {
+        "message": "🎉 Bienvenue {member} sur **{server}** ! Tu es le **{count}**ème membre.",
+        "dm_message": null
+    },
+    "goodbye": {
+        "message": "👋 Au revoir **{member}**, on espère te revoir bientôt !"
+    }
+}
