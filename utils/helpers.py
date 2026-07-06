@@ -24,8 +24,61 @@ def load_config():
 
 
 def save_config(config):
+    data = {k: v for k, v in config.items() if k != "token"}
     with open("config.json", "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=4, ensure_ascii=False)
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+
+async def send_log(bot, config, embed: discord.Embed) -> bool:
+    channel_id = config.get("logs_channel_id")
+    if not channel_id:
+        return False
+
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(channel_id)
+        except discord.HTTPException as e:
+            print(f"[logs] Impossible de trouver le salon {channel_id} : {e}")
+            return False
+
+    if not isinstance(channel, discord.TextChannel):
+        print(f"[logs] Le salon {channel_id} n'est pas un salon textuel.")
+        return False
+
+    me = channel.guild.me
+    perms = channel.permissions_for(me)
+    if not perms.view_channel or not perms.send_messages:
+        print(f"[logs] Permissions manquantes dans #{channel.name} (voir/envoyer).")
+        return False
+    if not perms.embed_links:
+        print(f"[logs] Permission 'Integrer des liens' manquante dans #{channel.name}.")
+        return False
+
+    try:
+        await channel.send(embed=embed)
+        return True
+    except discord.HTTPException as e:
+        print(f"[logs] Erreur envoi dans #{channel.name} : {e}")
+        return False
+
+
+async def log_command_use(
+    bot,
+    config,
+    interaction: discord.Interaction,
+    command: str,
+    color: discord.Color = discord.Color.blurple(),
+    **fields,
+):
+    salon = interaction.channel.mention if interaction.channel else "Inconnu"
+    data = {
+        "Utilisateur": f"{interaction.user} ({interaction.user.id})",
+        "Salon": salon,
+    }
+    data.update(fields)
+    embed = log_embed(f"/{command}", color, **data)
+    await send_log(bot, config, embed)
 
 
 def ensure_data_dir():
@@ -78,20 +131,6 @@ def guild_key(guild_id):
 
 def user_key(user_id):
     return str(user_id)
-
-
-async def send_log(bot, config, embed: discord.Embed):
-    channel_id = config.get("logs_channel_id")
-    if not channel_id:
-        return
-    channel = bot.get_channel(channel_id)
-    if channel is None:
-        try:
-            channel = await bot.fetch_channel(channel_id)
-        except discord.HTTPException:
-            return
-    if channel:
-        await channel.send(embed=embed)
 
 
 def log_embed(title: str, color: discord.Color, **fields):

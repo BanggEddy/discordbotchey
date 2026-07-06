@@ -65,14 +65,14 @@ class AutoMod(commands.Cog):
 
             try:
                 await message.channel.send(
-                    f"🚫 {message.author.mention}, message supprimé : {reason}",
+                    f"{message.author.mention}, message supprime : {reason}",
                     delete_after=5,
                 )
             except discord.HTTPException:
                 pass
 
             embed = log_embed(
-                "🤖 Auto-modération",
+                "Auto-moderation",
                 discord.Color.dark_red(),
                 Membre=f"{message.author} ({message.author.id})",
                 Salon=f"{message.channel.mention}",

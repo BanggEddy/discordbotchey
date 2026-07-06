@@ -19,7 +19,7 @@ class Welcome(commands.Cog):
             if channel:
                 msg = welcome_cfg.get(
                     "message",
-                    "🎉 Bienvenue {member} sur **{server}** ! Tu es le **{count}**ème membre.",
+                    "Bienvenue {member} sur **{server}** ! Tu es le **{count}**eme membre.",
                 )
                 text = msg.format(
                     member=member.mention,
@@ -36,7 +36,7 @@ class Welcome(commands.Cog):
                 pass
 
         embed = log_embed(
-            "🎉 Arrivée",
+            "Arrivee",
             discord.Color.green(),
             Membre=f"{member} ({member.id})",
             Compte=f"Créé le {discord.utils.format_dt(member.created_at, 'R')}",
@@ -54,12 +54,12 @@ class Welcome(commands.Cog):
             if channel:
                 msg = goodbye_cfg.get(
                     "message",
-                    "👋 Au revoir **{member}**, on espère te revoir bientôt !",
+                    "Au revoir **{member}**, on espere te revoir bientot !",
                 )
                 await channel.send(msg.format(member=member.display_name))
 
         embed = log_embed(
-            "👋 Départ",
+            "Depart",
             discord.Color.light_grey(),
             Membre=f"{member} ({member.id})",
             Total=str(member.guild.member_count),

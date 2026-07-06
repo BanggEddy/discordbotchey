@@ -4,24 +4,27 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils.helpers import get_followers, guild_key, load_follows, save_follows, user_key
+from utils.helpers import get_followers, guild_key, load_follows, log_command_use, save_follows, user_key
 
 STATUS_LABELS = {
-    discord.Status.online: "🟢 En ligne",
-    discord.Status.idle: "🟡 Inactif",
-    discord.Status.dnd: "🔴 Ne pas déranger",
-    discord.Status.offline: "⚫ Hors ligne",
-    discord.Status.invisible: "⚫ Invisible",
+    discord.Status.online: "En ligne",
+    discord.Status.idle: "Inactif",
+    discord.Status.dnd: "Ne pas déranger",
+    discord.Status.offline: "Hors ligne",
+    discord.Status.invisible: "Invisible",
 }
 
 
 class Users(commands.Cog):
-    user = app_commands.Group(name="user", description="👤 Suivi et recherche de membres")
+    user = app_commands.Group(name="user", description="Suivi et recherche de membres")
 
     def __init__(self, bot):
         self.bot = bot
         self.last_seen = {}
         self._notify_cooldown = {}
+
+    def _follow_enabled(self) -> bool:
+        return self.bot.config.get("followuser_enabled", True)
 
     def _record_seen(self, member: discord.Member, channel: discord.abc.GuildChannel):
         self.last_seen[(member.guild.id, member.id)] = channel
@@ -35,98 +38,8 @@ class Users(commands.Cog):
         self._notify_cooldown[key] = now
         return True
 
-    async def _notify_followers(
-        self, guild: discord.Guild, target: discord.Member, message: str, cooldown: bool = False
-    ):
-        follows = load_follows()
-        for follower_id in get_followers(follows, guild.id, target.id):
-            if follower_id == target.id:
-                continue
-            if cooldown and not self._can_notify(follower_id, target.id):
-                continue
-            follower = guild.get_member(follower_id)
-            if not follower:
-                continue
-            try:
-                embed = discord.Embed(
-                    title="👁️ Suivi utilisateur",
-                    description=message,
-                    color=discord.Color.teal(),
-                )
-                embed.set_thumbnail(url=target.display_avatar.url)
-                embed.set_footer(text=f"Serveur : {guild.name}")
-                await follower.send(embed=embed)
-            except discord.HTTPException:
-                pass
-
-    @user.command(name="follow", description="👁️ Suivre un membre (notifications par MP)")
-    @app_commands.describe(membre="Membre à suivre")
-    async def follow(self, interaction: discord.Interaction, membre: discord.Member):
-        if membre.id == interaction.user.id:
-            await interaction.response.send_message("❌ Tu ne peux pas te suivre toi-même.", ephemeral=True)
-            return
-        if membre.bot:
-            await interaction.response.send_message("❌ Tu ne peux pas suivre un bot.", ephemeral=True)
-            return
-
-        follows = load_follows()
-        gk = guild_key(interaction.guild.id)
-        uk = user_key(interaction.user.id)
-        tk = user_key(membre.id)
-        follows.setdefault(gk, {}).setdefault(uk, [])
-
-        if tk in follows[gk][uk]:
-            await interaction.response.send_message(f"ℹ️ Tu suis déjà **{membre.display_name}**.", ephemeral=True)
-            return
-
-        follows[gk][uk].append(tk)
-        save_follows(follows)
-        await interaction.response.send_message(
-            f"✅ Tu suis maintenant **{membre.display_name}**.\n"
-            f"Tu seras notifié par MP quand il se connecte, rejoint un vocal ou envoie un message.",
-            ephemeral=True,
-        )
-
-    @user.command(name="unfollow", description="👁️ Ne plus suivre un membre")
-    @app_commands.describe(membre="Membre à ne plus suivre")
-    async def unfollow(self, interaction: discord.Interaction, membre: discord.Member):
-        follows = load_follows()
-        gk = guild_key(interaction.guild.id)
-        uk = user_key(interaction.user.id)
-        tk = user_key(membre.id)
-
-        if tk not in follows.get(gk, {}).get(uk, []):
-            await interaction.response.send_message(f"ℹ️ Tu ne suis pas **{membre.display_name}**.", ephemeral=True)
-            return
-
-        follows[gk][uk].remove(tk)
-        save_follows(follows)
-        await interaction.response.send_message(f"✅ Tu ne suis plus **{membre.display_name}**.", ephemeral=True)
-
-    @user.command(name="following", description="👁️ Voir les membres que tu suis")
-    async def following(self, interaction: discord.Interaction):
-        follows = load_follows()
-        gk = guild_key(interaction.guild.id)
-        uk = user_key(interaction.user.id)
-        targets = follows.get(gk, {}).get(uk, [])
-
-        if not targets:
-            await interaction.response.send_message("ℹ️ Tu ne suis personne pour l'instant.", ephemeral=True)
-            return
-
-        lines = []
-        for tid in targets:
-            member = interaction.guild.get_member(int(tid))
-            lines.append(f"• {member.mention if member else f'`{tid}`'}")
-
-        embed = discord.Embed(title="👁️ Membres suivis", color=discord.Color.teal())
-        embed.description = "\n".join(lines)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @user.command(name="find", description="🔍 Trouver où est un membre")
-    @app_commands.describe(membre="Membre à localiser")
-    async def find(self, interaction: discord.Interaction, membre: discord.Member):
-        status = STATUS_LABELS.get(membre.status, "❓ Inconnu")
+    def _build_find_embed(self, membre: discord.Member) -> discord.Embed:
+        status = STATUS_LABELS.get(membre.status, "Inconnu")
 
         voice = None
         if membre.voice and membre.voice.channel:
@@ -135,13 +48,13 @@ class Users(commands.Cog):
         activity = None
         if membre.activity:
             if isinstance(membre.activity, discord.Spotify):
-                activity = f"🎵 Écoute **{membre.activity.title}** — {membre.activity.artist}"
+                activity = f"Écoute **{membre.activity.title}** - {membre.activity.artist}"
             elif isinstance(membre.activity, discord.Game):
-                activity = f"🎮 Joue à **{membre.activity.name}**"
+                activity = f"Joue à **{membre.activity.name}**"
             elif isinstance(membre.activity, discord.Streaming):
-                activity = f"📺 Stream **{membre.activity.name}**"
+                activity = f"Stream **{membre.activity.name}**"
             else:
-                activity = f"📌 {membre.activity.name}"
+                activity = membre.activity.name
 
         last_channel = self.last_seen.get((membre.guild.id, membre.id))
         last_channel_text = last_channel.mention if last_channel else "Inconnu"
@@ -150,7 +63,7 @@ class Users(commands.Cog):
         roles_text = " ".join(roles[:10]) if roles else "Aucun"
 
         embed = discord.Embed(
-            title=f"🔍 Localisation — {membre.display_name}",
+            title=f"Localisation - {membre.display_name}",
             color=membre.color if membre.color.value else discord.Color.blurple(),
         )
         embed.set_thumbnail(url=membre.display_avatar.url)
@@ -171,7 +84,211 @@ class Users(commands.Cog):
             value=discord.utils.format_dt(membre.created_at, "R"),
             inline=True,
         )
+        return embed
+
+    async def _do_follow(self, interaction: discord.Interaction, membre: discord.Member, command: str):
+        if not self._follow_enabled():
+            await interaction.response.send_message(
+                "Le suivi de membres est désactivé sur ce bot.", ephemeral=True
+            )
+            await log_command_use(
+                self.bot,
+                self.bot.config,
+                interaction,
+                command,
+                Membre=f"{membre} ({membre.id})",
+                Resultat="Desactive",
+            )
+            return
+        if membre.id == interaction.user.id:
+            await interaction.response.send_message("Tu ne peux pas te suivre toi-même.", ephemeral=True)
+            await log_command_use(
+                self.bot,
+                self.bot.config,
+                interaction,
+                command,
+                Membre=f"{membre} ({membre.id})",
+                Resultat="Refuse (soi-meme)",
+            )
+            return
+        if membre.bot:
+            await interaction.response.send_message("Tu ne peux pas suivre un bot.", ephemeral=True)
+            await log_command_use(
+                self.bot,
+                self.bot.config,
+                interaction,
+                command,
+                Membre=f"{membre} ({membre.id})",
+                Resultat="Refuse (bot)",
+            )
+            return
+
+        follows = load_follows()
+        gk = guild_key(interaction.guild.id)
+        uk = user_key(interaction.user.id)
+        tk = user_key(membre.id)
+        follows.setdefault(gk, {}).setdefault(uk, [])
+
+        if tk in follows[gk][uk]:
+            await interaction.response.send_message(f"Tu suis déjà **{membre.display_name}**.", ephemeral=True)
+            await log_command_use(
+                self.bot,
+                self.bot.config,
+                interaction,
+                command,
+                Membre=f"{membre} ({membre.id})",
+                Resultat="Deja suivi",
+            )
+            return
+
+        follows[gk][uk].append(tk)
+        save_follows(follows)
+        await interaction.response.send_message(
+            f"Tu suis maintenant **{membre.display_name}**.\n"
+            f"Tu seras notifié par MP quand il se connecte, rejoint un vocal ou envoie un message.",
+            ephemeral=True,
+        )
+        await log_command_use(
+            self.bot,
+            self.bot.config,
+            interaction,
+            command,
+            Membre=f"{membre} ({membre.id})",
+            Resultat="Suivi",
+        )
+
+    async def _notify_followers(
+        self, guild: discord.Guild, target: discord.Member, message: str, cooldown: bool = False
+    ):
+        if not self._follow_enabled():
+            return
+        follows = load_follows()
+        for follower_id in get_followers(follows, guild.id, target.id):
+            if follower_id == target.id:
+                continue
+            if cooldown and not self._can_notify(follower_id, target.id):
+                continue
+            follower = guild.get_member(follower_id)
+            if not follower:
+                continue
+            try:
+                embed = discord.Embed(
+                    title="Suivi utilisateur",
+                    description=message,
+                    color=discord.Color.teal(),
+                )
+                embed.set_thumbnail(url=target.display_avatar.url)
+                embed.set_footer(text=f"Serveur : {guild.name}")
+                await follower.send(embed=embed)
+            except discord.HTTPException:
+                pass
+
+    @app_commands.command(name="find", description="Trouver où est un membre")
+    @app_commands.describe(membre="Membre à localiser")
+    async def find(self, interaction: discord.Interaction, membre: discord.Member):
+        embed = self._build_find_embed(membre)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+        await log_command_use(
+            self.bot, self.bot.config, interaction, "find", Membre=f"{membre} ({membre.id})"
+        )
+
+    @app_commands.command(name="followuser", description="Suivre un membre (notifications par MP)")
+    @app_commands.describe(membre="Membre à suivre")
+    async def followuser(self, interaction: discord.Interaction, membre: discord.Member):
+        await self._do_follow(interaction, membre, "followuser")
+
+    @user.command(name="follow", description="Suivre un membre (notifications par MP)")
+    @app_commands.describe(membre="Membre à suivre")
+    async def follow(self, interaction: discord.Interaction, membre: discord.Member):
+        await self._do_follow(interaction, membre, "user follow")
+
+    @user.command(name="unfollow", description="Ne plus suivre un membre")
+    @app_commands.describe(membre="Membre a ne plus suivre")
+    async def unfollow(self, interaction: discord.Interaction, membre: discord.Member):
+        if not self._follow_enabled():
+            await interaction.response.send_message(
+                "Le suivi de membres est désactivé sur ce bot.", ephemeral=True
+            )
+            await log_command_use(
+                self.bot,
+                self.bot.config,
+                interaction,
+                "user unfollow",
+                Membre=f"{membre} ({membre.id})",
+                Resultat="Desactive",
+            )
+            return
+        follows = load_follows()
+        gk = guild_key(interaction.guild.id)
+        uk = user_key(interaction.user.id)
+        tk = user_key(membre.id)
+
+        if tk not in follows.get(gk, {}).get(uk, []):
+            await interaction.response.send_message(f"Tu ne suis pas **{membre.display_name}**.", ephemeral=True)
+            await log_command_use(
+                self.bot,
+                self.bot.config,
+                interaction,
+                "user unfollow",
+                Membre=f"{membre} ({membre.id})",
+                Resultat="Pas suivi",
+            )
+            return
+
+        follows[gk][uk].remove(tk)
+        save_follows(follows)
+        await interaction.response.send_message(f"Tu ne suis plus **{membre.display_name}**.", ephemeral=True)
+        await log_command_use(
+            self.bot,
+            self.bot.config,
+            interaction,
+            "user unfollow",
+            Membre=f"{membre} ({membre.id})",
+            Resultat="Unfollow",
+        )
+
+    @user.command(name="following", description="Voir les membres que tu suis")
+    async def following(self, interaction: discord.Interaction):
+        if not self._follow_enabled():
+            await interaction.response.send_message(
+                "Le suivi de membres est désactivé sur ce bot.", ephemeral=True
+            )
+            await log_command_use(
+                self.bot, self.bot.config, interaction, "user following", Resultat="Desactive"
+            )
+            return
+        follows = load_follows()
+        gk = guild_key(interaction.guild.id)
+        uk = user_key(interaction.user.id)
+        targets = follows.get(gk, {}).get(uk, [])
+
+        if not targets:
+            await interaction.response.send_message("Tu ne suis personne pour l'instant.", ephemeral=True)
+            await log_command_use(
+                self.bot, self.bot.config, interaction, "user following", Total="0"
+            )
+            return
+
+        lines = []
+        for tid in targets:
+            member = interaction.guild.get_member(int(tid))
+            lines.append(f"- {member.mention if member else f'`{tid}`'}")
+
+        embed = discord.Embed(title="Membres suivis", color=discord.Color.teal())
+        embed.description = "\n".join(lines)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await log_command_use(
+            self.bot, self.bot.config, interaction, "user following", Total=str(len(targets))
+        )
+
+    @user.command(name="find", description="Trouver où est un membre")
+    @app_commands.describe(membre="Membre à localiser")
+    async def user_find(self, interaction: discord.Interaction, membre: discord.Member):
+        embed = self._build_find_embed(membre)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await log_command_use(
+            self.bot, self.bot.config, interaction, "user find", Membre=f"{membre} ({membre.id})"
+        )
 
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
