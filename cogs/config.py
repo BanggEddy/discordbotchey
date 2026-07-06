@@ -43,7 +43,8 @@ class Config(commands.Cog):
                 "`/ban` — Bannir\n"
                 "`/kick` — Expulser\n"
                 "`/mute` / `/unmute` — Timeout\n"
-                "`/warn` / `/warns` — Avertissements"
+                "`/warn` / `/warns` — Avertissements\n"
+                "`/clear` — Supprimer des messages"
             ),
             inline=False,
         )

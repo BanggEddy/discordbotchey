@@ -129,6 +129,58 @@ class Moderation(commands.Cog):
         )
         await send_log(self.bot, self.config, embed)
 
+    @app_commands.command(name="clear", description="🧹 Supprimer des messages dans le salon")
+    @app_commands.describe(
+        nombre="Nombre de messages à supprimer (1-100)",
+        membre="Supprimer uniquement les messages de ce membre",
+    )
+    @app_commands.checks.has_permissions(manage_messages=True)
+    async def clear(
+        self,
+        interaction: discord.Interaction,
+        nombre: app_commands.Range[int, 1, 100],
+        membre: discord.Member = None,
+    ):
+        if not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message("❌ Cette commande ne fonctionne que dans un salon textuel.", ephemeral=True)
+            return
+
+        permissions = interaction.channel.permissions_for(interaction.guild.me)
+        if not permissions.manage_messages:
+            await interaction.response.send_message("❌ Je n'ai pas la permission de gérer les messages ici.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        check = (lambda m: m.author.id == membre.id) if membre else None
+        try:
+            deleted = await interaction.channel.purge(limit=nombre, check=check, before=interaction.created_at)
+        except discord.Forbidden:
+            await interaction.followup.send("❌ Impossible de supprimer des messages dans ce salon.", ephemeral=True)
+            return
+        except discord.HTTPException:
+            await interaction.followup.send(
+                "❌ Impossible de supprimer ces messages (messages de plus de 14 jours ?).",
+                ephemeral=True,
+            )
+            return
+
+        msg = f"🧹 **{len(deleted)}** message(s) supprimé(s)"
+        if membre:
+            msg += f" de **{membre.display_name}**"
+        msg += f" dans {interaction.channel.mention}."
+        await interaction.followup.send(msg, ephemeral=True)
+
+        embed = log_embed(
+            "🧹 Clear",
+            discord.Color.dark_teal(),
+            Modérateur=f"{interaction.user} ({interaction.user.id})",
+            Salon=f"{interaction.channel.mention}",
+            Supprimés=str(len(deleted)),
+            Filtre=membre.display_name if membre else "Aucun",
+        )
+        await send_log(self.bot, self.config, embed)
+
     @app_commands.command(name="warns", description="📋 Voir les avertissements d'un membre")
     @app_commands.describe(membre="Membre à consulter")
     @app_commands.checks.has_permissions(moderate_members=True)
